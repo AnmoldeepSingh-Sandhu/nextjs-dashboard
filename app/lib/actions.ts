@@ -23,15 +23,6 @@ export type State = {
   message?: string | null;
 };
 
-// export type User = {
-//   errors?:{
-//     name?: string[];
-//     email?: string[];
-//     password?: string[];
-    
-//   };
-//   message?: string | null;
-// }
 
 const FormSchema = z.object({
   id: z.string(),
