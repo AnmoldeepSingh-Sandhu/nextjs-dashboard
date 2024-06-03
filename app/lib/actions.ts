@@ -4,6 +4,9 @@ import { z } from 'zod';
 import { sql } from '@vercel/postgres';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { signIn, getUser } from '@/auth';
+import { AuthError } from 'next-auth';
+import bcrypt from 'bcrypt';
 
 
 // This is temporary until @types/react-dom is updated
@@ -12,9 +15,23 @@ export type State = {
     customerId?: string[];
     amount?: string[];
     status?: string[];
+    name?: string[];
+    email?: string[];
+    password?: string[];
+    confirmPassword?: string[];
   };
   message?: string | null;
 };
+
+// export type User = {
+//   errors?:{
+//     name?: string[];
+//     email?: string[];
+//     password?: string[];
+    
+//   };
+//   message?: string | null;
+// }
 
 const FormSchema = z.object({
   id: z.string(),
@@ -28,6 +45,22 @@ const FormSchema = z.object({
     invalid_type_error: 'Please select an invoice status.',
   }),
   date: z.string(),
+});
+
+const userData = z.object({
+  id: z.string(),
+  name: z.string({
+    invalid_type_error: 'Please enter a Username.'
+  }).trim(),
+  email: z.string({
+    invalid_type_error: 'Please enter an Valid Email.'
+  }).email(),
+  password: z.string({
+    invalid_type_error: 'Please enter an Valid password.'
+  }).min(6),
+  confirmPassword: z.string({
+    invalid_type_error: 'Please enter an Valid password.'
+  }).min(6)
 });
  
 const CreateInvoice = FormSchema.omit({ id: true, date: true });
@@ -116,4 +149,70 @@ export async function deleteInvoice(id: string) {
     return { message: 'Database Error: Failed to Delete Invoice.' };
   }
 
+}
+
+const CreateUser = userData.omit({ id: true });
+
+export async function createUser(prevState: State, formData: FormData){
+  const validatedFields = CreateUser.safeParse({
+    name: formData.get('user'),
+    email: formData.get('email'),
+    password: formData.get('password'),
+    confirmPassword: formData.get('confirmPassword'),
+  });
+
+  if (!validatedFields.success) {
+    return {
+      errors: validatedFields.error.flatten().fieldErrors,
+      message: 'Missing Fields. Failed to Create User.',
+    };
+  }
+
+  const { name, email, password, confirmPassword} = validatedFields.data;
+  const hashedPassword = await bcrypt.hash(password,10)
+
+  if(password !== confirmPassword){
+    return {
+      message: "Passwords don't Match."
+    };
+  }
+
+  try{
+
+    const existingUser = await getUser(email);
+
+    if (existingUser) {
+      return { message: 'User already exist.' };
+    }
+
+    await sql`INSERT INTO users (name, email, password)
+    VALUES (${name}, ${email}, ${hashedPassword})
+  `;
+
+    return { message: 'Account created Successfully.' };
+  } catch (error) {
+    console.log(error)
+    return {
+      message: 'Database Error: Failed to Create User.',
+    };
+  }
+}
+
+export async function authenticate(
+  prevState: string | undefined,
+  formData: FormData,
+) {
+  try {
+    await signIn('credentials', formData);
+  } catch (error) {
+    if (error instanceof AuthError) {
+      switch (error.type) {
+        case 'CredentialsSignin':
+          return 'Invalid credentials.';
+        default:
+          return 'Something went wrong.';
+      }
+    }
+    throw error;
+  }
 }
